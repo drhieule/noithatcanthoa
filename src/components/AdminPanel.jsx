@@ -227,23 +227,45 @@ function ProductFormModal({ product, onSave, onClose }) {
 // ---- Products Tab ----
 function ProductsTab() {
   const { state, addProduct, updateProduct, deleteProduct } = useApp();
-  const [showModal, setShowModal] = useState(false);
-  const [editingProduct, setEditingProduct] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [editErrors, setEditErrors] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
-  function handleSave(data) {
-    if (editingProduct) {
-      updateProduct({ ...data, id: editingProduct.id });
-    } else {
-      addProduct(data);
-    }
-    setShowModal(false);
-    setEditingProduct(null);
+  function startEdit(product) {
+    setEditingId(product.id);
+    setEditForm({
+      name: product.name,
+      category: product.category,
+      price: String(product.price),
+      stock: String(product.stock),
+    });
+    setEditErrors({});
+    setDeleteConfirm(null);
   }
 
-  function handleEdit(product) {
-    setEditingProduct(product);
-    setShowModal(true);
+  function cancelEdit() {
+    setEditingId(null);
+    setEditForm({});
+    setEditErrors({});
+  }
+
+  function saveEdit(product) {
+    const errs = {};
+    if (!editForm.name.trim()) errs.name = true;
+    if (!editForm.price || isNaN(Number(editForm.price)) || Number(editForm.price) <= 0) errs.price = true;
+    if (Object.keys(errs).length > 0) { setEditErrors(errs); return; }
+
+    updateProduct({
+      ...product,
+      name: editForm.name.trim(),
+      category: editForm.category,
+      price: Number(editForm.price),
+      stock: Math.max(0, Number(editForm.stock) || 0),
+    });
+    setEditingId(null);
+    setEditForm({});
   }
 
   function handleDelete(id) {
@@ -252,6 +274,7 @@ function ProductsTab() {
       setDeleteConfirm(null);
     } else {
       setDeleteConfirm(id);
+      setEditingId(null);
     }
   }
 
@@ -262,7 +285,7 @@ function ProductsTab() {
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-gray-500">{state.products.length} sản phẩm</p>
         <button
-          onClick={() => { setEditingProduct(null); setShowModal(true); }}
+          onClick={() => setShowAddModal(true)}
           className="flex items-center gap-2 bg-[#8B5E3C] text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-[#6B4229] transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -279,81 +302,144 @@ function ProductsTab() {
             <tr>
               <th className="text-left px-4 py-3 font-semibold">Sản phẩm</th>
               <th className="text-left px-4 py-3 font-semibold">Danh mục</th>
-              <th className="text-right px-4 py-3 font-semibold">Giá</th>
+              <th className="text-right px-4 py-3 font-semibold">Giá (đ)</th>
               <th className="text-center px-4 py-3 font-semibold">Kho</th>
-              <th className="text-center px-4 py-3 font-semibold">Thao tác</th>
+              <th className="text-center px-4 py-3 font-semibold w-32">Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {state.products.map((p, i) => (
-              <tr key={p.id} className={i % 2 === 0 ? 'bg-white' : 'bg-[#FFF8F0]'}>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={p.image}
-                      alt={p.name}
-                      className="w-10 h-10 rounded-lg object-cover bg-[#FEF0DC] flex-shrink-0"
+              editingId === p.id ? (
+                /* ---- Inline edit row ---- */
+                <tr key={p.id} className="bg-[#FEF0DC]">
+                  <td className="px-3 py-2">
+                    <input
+                      value={editForm.name}
+                      onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                      className={`w-full px-2 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8B5E3C] ${editErrors.name ? 'border-red-400' : 'border-gray-300'}`}
+                      placeholder="Tên sản phẩm"
                     />
-                    <div>
-                      <p className="font-medium text-gray-800 leading-tight">{p.name}</p>
-                      <p className="text-gray-400 text-xs line-clamp-1 max-w-xs">{p.description}</p>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <span className="bg-[#FEF0DC] text-[#8B5E3C] text-xs px-2 py-0.5 rounded-full font-medium">
-                    {catLabel(p.category)}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right font-semibold text-[#8B5E3C]">
-                  {formatPrice(p.price)}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                    p.stock === 0 ? 'bg-red-100 text-red-600' :
-                    p.stock <= 5 ? 'bg-orange-100 text-orange-600' :
-                    'bg-green-100 text-green-700'
-                  }`}>
-                    {p.stock}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center justify-center gap-1">
-                    <button
-                      onClick={() => handleEdit(p)}
-                      className="text-blue-500 hover:text-blue-700 p-1.5 hover:bg-blue-50 rounded-lg transition-colors"
-                      title="Chỉnh sửa"
+                  </td>
+                  <td className="px-3 py-2">
+                    <select
+                      value={editForm.category}
+                      onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))}
+                      className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8B5E3C] bg-white"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => handleDelete(p.id)}
-                      className={`p-1.5 rounded-lg transition-colors ${
-                        deleteConfirm === p.id
-                          ? 'bg-red-500 text-white'
-                          : 'text-red-400 hover:text-red-600 hover:bg-red-50'
-                      }`}
-                      title={deleteConfirm === p.id ? 'Nhấn lần nữa để xác nhận' : 'Xóa'}
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                    {deleteConfirm === p.id && (
+                      {CATEGORIES.map(cat => (
+                        <option key={cat.id} value={cat.id}>{cat.label}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="number"
+                      min="0"
+                      value={editForm.price}
+                      onChange={e => setEditForm(f => ({ ...f, price: e.target.value }))}
+                      className={`w-full px-2 py-1.5 border rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#8B5E3C] ${editErrors.price ? 'border-red-400' : 'border-gray-300'}`}
+                      placeholder="Giá"
+                    />
+                    {editForm.price && !isNaN(Number(editForm.price)) && Number(editForm.price) > 0 && (
+                      <p className="text-[#8B5E3C] text-xs mt-0.5 text-right">{formatPrice(editForm.price)}</p>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="number"
+                      min="0"
+                      value={editForm.stock}
+                      onChange={e => setEditForm(f => ({ ...f, stock: e.target.value }))}
+                      className="w-16 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#8B5E3C] mx-auto block"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center justify-center gap-1.5">
                       <button
-                        onClick={() => setDeleteConfirm(null)}
-                        className="text-gray-400 hover:text-gray-600 p-1.5 hover:bg-gray-50 rounded-lg text-xs"
+                        onClick={() => saveEdit(p)}
+                        className="flex items-center gap-1 bg-[#8B5E3C] text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#6B4229] transition-colors"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Lưu
+                      </button>
+                      <button
+                        onClick={cancelEdit}
+                        className="px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-500 hover:bg-gray-100 transition-colors"
                       >
                         Hủy
                       </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                /* ---- Normal display row ---- */
+                <tr key={p.id} className={i % 2 === 0 ? 'bg-white' : 'bg-[#FFF8F0]'}>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <img src={p.image} alt={p.name} className="w-10 h-10 rounded-lg object-cover bg-[#FEF0DC] flex-shrink-0" />
+                      <div>
+                        <p className="font-medium text-gray-800 leading-tight">{p.name}</p>
+                        <p className="text-gray-400 text-xs line-clamp-1 max-w-xs">{p.description}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="bg-[#FEF0DC] text-[#8B5E3C] text-xs px-2 py-0.5 rounded-full font-medium">
+                      {catLabel(p.category)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold text-[#8B5E3C]">
+                    {formatPrice(p.price)}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      p.stock === 0 ? 'bg-red-100 text-red-600' :
+                      p.stock <= 5 ? 'bg-orange-100 text-orange-600' :
+                      'bg-green-100 text-green-700'
+                    }`}>
+                      {p.stock}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-center gap-1">
+                      <button
+                        onClick={() => startEdit(p)}
+                        className="flex items-center gap-1 text-blue-600 hover:text-blue-800 px-2.5 py-1.5 hover:bg-blue-50 rounded-lg transition-colors text-xs font-medium"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        Sửa
+                      </button>
+                      <button
+                        onClick={() => handleDelete(p.id)}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          deleteConfirm === p.id
+                            ? 'bg-red-500 text-white'
+                            : 'text-red-400 hover:text-red-600 hover:bg-red-50'
+                        }`}
+                        title={deleteConfirm === p.id ? 'Nhấn lần nữa để xác nhận xóa' : 'Xóa'}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                      {deleteConfirm === p.id && (
+                        <button
+                          onClick={() => setDeleteConfirm(null)}
+                          className="text-gray-400 hover:text-gray-600 p-1.5 hover:bg-gray-50 rounded-lg text-xs"
+                        >
+                          Hủy
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )
             ))}
           </tbody>
         </table>
@@ -362,39 +448,106 @@ function ProductsTab() {
       {/* Cards - mobile */}
       <div className="md:hidden space-y-3">
         {state.products.map(p => (
-          <div key={p.id} className="bg-white rounded-xl border border-[#FCDDB8] p-3 flex gap-3">
-            <img src={p.image} alt={p.name} className="w-16 h-16 rounded-xl object-cover bg-[#FEF0DC] flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm text-gray-800 leading-tight mb-0.5">{p.name}</p>
-              <p className="text-[#8B5E3C] font-bold text-sm">{formatPrice(p.price)}</p>
-              <p className="text-gray-400 text-xs">{catLabel(p.category)} · Kho: {p.stock}</p>
+          editingId === p.id ? (
+            /* ---- Inline edit card (mobile) ---- */
+            <div key={p.id} className="bg-[#FEF0DC] rounded-xl border border-[#8B5E3C]/30 p-3 space-y-2">
+              <p className="text-xs font-semibold text-[#6B4229] mb-1">Đang sửa sản phẩm</p>
+              <input
+                value={editForm.name}
+                onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8B5E3C] ${editErrors.name ? 'border-red-400' : 'border-gray-300'}`}
+                placeholder="Tên sản phẩm"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={editForm.category}
+                  onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))}
+                  className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#8B5E3C]"
+                >
+                  {CATEGORIES.map(cat => (
+                    <option key={cat.id} value={cat.id}>{cat.label}</option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min="0"
+                  value={editForm.stock}
+                  onChange={e => setEditForm(f => ({ ...f, stock: e.target.value }))}
+                  placeholder="Kho"
+                  className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8B5E3C]"
+                />
+              </div>
+              <div>
+                <input
+                  type="number"
+                  min="0"
+                  value={editForm.price}
+                  onChange={e => setEditForm(f => ({ ...f, price: e.target.value }))}
+                  placeholder="Giá (VND)"
+                  className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8B5E3C] ${editErrors.price ? 'border-red-400' : 'border-gray-300'}`}
+                />
+                {editForm.price && !isNaN(Number(editForm.price)) && Number(editForm.price) > 0 && (
+                  <p className="text-[#8B5E3C] text-xs mt-0.5">{formatPrice(editForm.price)}</p>
+                )}
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => saveEdit(p)}
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-[#8B5E3C] text-white py-2 rounded-lg text-sm font-semibold hover:bg-[#6B4229] transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Lưu
+                </button>
+                <button
+                  onClick={cancelEdit}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-white transition-colors"
+                >
+                  Hủy
+                </button>
+              </div>
             </div>
-            <div className="flex flex-col gap-1 ml-auto">
-              <button onClick={() => handleEdit(p)} className="text-blue-500 p-1.5 hover:bg-blue-50 rounded-lg">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-              </button>
-              <button
-                onClick={() => handleDelete(p.id)}
-                className={`p-1.5 rounded-lg ${deleteConfirm === p.id ? 'bg-red-500 text-white' : 'text-red-400 hover:bg-red-50'}`}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
+          ) : (
+            /* ---- Normal card (mobile) ---- */
+            <div key={p.id} className="bg-white rounded-xl border border-[#FCDDB8] p-3 flex gap-3">
+              <img src={p.image} alt={p.name} className="w-16 h-16 rounded-xl object-cover bg-[#FEF0DC] flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm text-gray-800 leading-tight mb-0.5">{p.name}</p>
+                <p className="text-[#8B5E3C] font-bold text-sm">{formatPrice(p.price)}</p>
+                <p className="text-gray-400 text-xs">{catLabel(p.category)} · Kho: {p.stock}</p>
+              </div>
+              <div className="flex flex-col gap-1 ml-auto">
+                <button
+                  onClick={() => startEdit(p)}
+                  className="flex items-center gap-1 text-blue-600 px-2 py-1.5 hover:bg-blue-50 rounded-lg text-xs font-medium"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Sửa
+                </button>
+                <button
+                  onClick={() => handleDelete(p.id)}
+                  className={`p-1.5 rounded-lg ${deleteConfirm === p.id ? 'bg-red-500 text-white' : 'text-red-400 hover:bg-red-50'}`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
             </div>
-          </div>
+          )
         ))}
       </div>
 
-      {showModal && (
+      {showAddModal && (
         <ProductFormModal
-          product={editingProduct}
-          onSave={handleSave}
-          onClose={() => { setShowModal(false); setEditingProduct(null); }}
+          product={null}
+          onSave={(data) => { addProduct(data); setShowAddModal(false); }}
+          onClose={() => setShowAddModal(false)}
         />
       )}
     </div>
