@@ -4,38 +4,43 @@ import initialProducts from '../data/products';
 const AppContext = createContext(null);
 
 const CART_KEY = 'noithat_cart';
+const SALES_KEY = 'noithat_sales';
+const PRODUCTS_KEY = 'noithat_products';
 
-function loadCartFromStorage() {
+function load(key, fallback) {
   try {
-    const raw = localStorage.getItem(CART_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch { return fallback; }
 }
 
-function saveCartToStorage(cart) {
-  try {
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
-  } catch {
-    // ignore
-  }
+function save(key, data) {
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
 }
+
+function loadProducts() {
+  const stored = load(PRODUCTS_KEY, null);
+  if (stored && stored.length > 0) return stored;
+  return initialProducts;
+}
+
+const storedProducts = loadProducts();
 
 const initialState = {
-  products: initialProducts,
-  cart: loadCartFromStorage(),
+  products: storedProducts,
+  cart: load(CART_KEY, []),
   orders: [],
-  currentView: 'home',       // 'home' | 'products' | 'admin'
+  sales: load(SALES_KEY, []),
+  currentView: 'home',
   searchQuery: '',
   selectedCategory: 'all',
   priceFilter: 'all',
   isCartOpen: false,
   isOrderOpen: false,
   isOrderSuccess: false,
-  isAdminLoggedIn: false,
-  editingProduct: null,       // null or product object
-  nextProductId: initialProducts.length + 1,
+  currentUser: null,       // { role: 'owner'|'staff', name: string }
+  editingProduct: null,
+  nextProductId: Math.max(0, ...storedProducts.map(p => p.id)) + 1,
 };
 
 function reducer(state, action) {
@@ -46,9 +51,7 @@ function reducer(state, action) {
       let newCart;
       if (existing) {
         newCart = state.cart.map(item =>
-          item.id === action.product.id
-            ? { ...item, qty: item.qty + 1 }
-            : item
+          item.id === action.product.id ? { ...item, qty: item.qty + 1 } : item
         );
       } else {
         newCart = [...state.cart, { ...action.product, qty: 1 }];
@@ -56,26 +59,27 @@ function reducer(state, action) {
       return { ...state, cart: newCart };
     }
     case 'REMOVE_FROM_CART': {
-      const newCart = state.cart.filter(item => item.id !== action.id);
-      return { ...state, cart: newCart };
+      return { ...state, cart: state.cart.filter(item => item.id !== action.id) };
     }
     case 'UPDATE_CART_QTY': {
       if (action.qty <= 0) {
-        const newCart = state.cart.filter(item => item.id !== action.id);
-        return { ...state, cart: newCart };
+        return { ...state, cart: state.cart.filter(item => item.id !== action.id) };
       }
-      const newCart = state.cart.map(item =>
-        item.id === action.id ? { ...item, qty: action.qty } : item
-      );
-      return { ...state, cart: newCart };
+      return {
+        ...state,
+        cart: state.cart.map(item =>
+          item.id === action.id ? { ...item, qty: action.qty } : item
+        ),
+      };
     }
     case 'CLEAR_CART':
       return { ...state, cart: [] };
 
-    // ----- ORDERS -----
+    // ----- ORDERS (online) -----
     case 'PLACE_ORDER': {
       const newOrder = {
         id: Date.now(),
+        dateKey: new Date().toISOString().split('T')[0],
         createdAt: new Date().toLocaleString('vi-VN'),
         items: [...state.cart],
         total: state.cart.reduce((sum, i) => sum + i.price * i.qty, 0),
@@ -92,12 +96,32 @@ function reducer(state, action) {
       };
     }
 
-    // ----- PRODUCTS (admin) -----
-    case 'ADD_PRODUCT': {
-      const newProduct = {
-        ...action.product,
-        id: state.nextProductId,
+    // ----- SALES (in-store, recorded by staff/owner) -----
+    case 'ADD_SALE': {
+      const sale = {
+        id: Date.now(),
+        dateKey: new Date().toISOString().split('T')[0],
+        createdAt: new Date().toLocaleString('vi-VN'),
+        soldBy: action.sale.soldBy,
+        items: action.sale.items,
+        total: action.sale.total,
+        profit: action.sale.profit,
+        paymentType: action.sale.paymentType,
+        transferBy: action.sale.transferBy || '',
+        note: action.sale.note || '',
+        photo: action.sale.photo || '',
       };
+      const updatedProducts = state.products.map(p => {
+        const saleItem = sale.items.find(i => i.productId === p.id);
+        if (saleItem) return { ...p, stock: Math.max(0, p.stock - saleItem.qty) };
+        return p;
+      });
+      return { ...state, sales: [sale, ...state.sales], products: updatedProducts };
+    }
+
+    // ----- PRODUCTS -----
+    case 'ADD_PRODUCT': {
+      const newProduct = { ...action.product, id: state.nextProductId };
       return {
         ...state,
         products: [...state.products, newProduct],
@@ -106,17 +130,22 @@ function reducer(state, action) {
       };
     }
     case 'UPDATE_PRODUCT': {
-      const updated = state.products.map(p =>
-        p.id === action.product.id ? action.product : p
-      );
-      return { ...state, products: updated, editingProduct: null };
+      return {
+        ...state,
+        products: state.products.map(p => p.id === action.product.id ? action.product : p),
+        editingProduct: null,
+      };
     }
-    case 'DELETE_PRODUCT': {
-      const filtered = state.products.filter(p => p.id !== action.id);
-      return { ...state, products: filtered };
-    }
+    case 'DELETE_PRODUCT':
+      return { ...state, products: state.products.filter(p => p.id !== action.id) };
     case 'SET_EDITING_PRODUCT':
       return { ...state, editingProduct: action.product };
+
+    // ----- AUTH -----
+    case 'LOGIN_USER':
+      return { ...state, currentUser: action.user };
+    case 'LOGOUT_USER':
+      return { ...state, currentUser: null };
 
     // ----- NAVIGATION / UI -----
     case 'SET_VIEW':
@@ -137,10 +166,6 @@ function reducer(state, action) {
       return { ...state, isOrderOpen: false };
     case 'CLOSE_ORDER_SUCCESS':
       return { ...state, isOrderSuccess: false };
-    case 'LOGIN_ADMIN':
-      return { ...state, isAdminLoggedIn: true };
-    case 'LOGOUT_ADMIN':
-      return { ...state, isAdminLoggedIn: false };
 
     default:
       return state;
@@ -150,10 +175,9 @@ function reducer(state, action) {
 export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // Sync cart to localStorage
-  useEffect(() => {
-    saveCartToStorage(state.cart);
-  }, [state.cart]);
+  useEffect(() => { save(CART_KEY, state.cart); }, [state.cart]);
+  useEffect(() => { save(SALES_KEY, state.sales); }, [state.sales]);
+  useEffect(() => { save(PRODUCTS_KEY, state.products); }, [state.products]);
 
   const actions = {
     addToCart: (product) => dispatch({ type: 'ADD_TO_CART', product }),
@@ -162,10 +186,15 @@ export function AppProvider({ children }) {
     clearCart: () => dispatch({ type: 'CLEAR_CART' }),
     placeOrder: (customer) => dispatch({ type: 'PLACE_ORDER', customer }),
 
+    addSale: (sale) => dispatch({ type: 'ADD_SALE', sale }),
+
     addProduct: (product) => dispatch({ type: 'ADD_PRODUCT', product }),
     updateProduct: (product) => dispatch({ type: 'UPDATE_PRODUCT', product }),
     deleteProduct: (id) => dispatch({ type: 'DELETE_PRODUCT', id }),
     setEditingProduct: (product) => dispatch({ type: 'SET_EDITING_PRODUCT', product }),
+
+    loginUser: (user) => dispatch({ type: 'LOGIN_USER', user }),
+    logoutUser: () => dispatch({ type: 'LOGOUT_USER' }),
 
     setView: (view) => dispatch({ type: 'SET_VIEW', view }),
     setSearch: (query) => dispatch({ type: 'SET_SEARCH', query }),
@@ -176,8 +205,6 @@ export function AppProvider({ children }) {
     openOrder: () => dispatch({ type: 'OPEN_ORDER' }),
     closeOrder: () => dispatch({ type: 'CLOSE_ORDER' }),
     closeOrderSuccess: () => dispatch({ type: 'CLOSE_ORDER_SUCCESS' }),
-    loginAdmin: () => dispatch({ type: 'LOGIN_ADMIN' }),
-    logoutAdmin: () => dispatch({ type: 'LOGOUT_ADMIN' }),
   };
 
   return (
